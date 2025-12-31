@@ -10,7 +10,6 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 import pytest
-import requests
 from docker.models.containers import Container
 
 from localstack import config
@@ -170,21 +169,19 @@ def authenticated_registry(tmpdir, docker_client: ContainerClient, create_contai
     )
     docker_client.start_container(registry_container.container_id)
 
-    # Wait for registry to be ready by checking the /v2/ endpoint
-    # The registry should return 401 when auth is required but not provided
+    # Wait for registry to be ready
     def _wait_for_registry():
         try:
-            response = requests.get(
-                f"http://localhost:{registry_port}/v2/",
-                timeout=2,
-            )
-            # Registry should respond with 401 Unauthorized when no credentials provided
-            # This means authentication is working and registry is ready
-            return response.status_code == 401
-        except requests.exceptions.RequestException:
+            logs = docker_client.get_container_logs(registry_container.container_id)
+            # Registry logs "listening on [::]:5000" when ready
+            return "listening on" in logs.lower()
+        except Exception:
             return False
 
     retry(_wait_for_registry, retries=30, sleep=0.5)
+
+    # Additional grace period for registry to stabilize
+    time.sleep(2)
 
     # Prepare return value
     registry_info = {
